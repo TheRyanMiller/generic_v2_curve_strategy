@@ -63,6 +63,8 @@ contract Strategy is BaseStrategy {
         @param _gauge, Curve gauge that this strategy should connect to
         @param _curveSwap, Curve contract where we add/remove liquidity to/from
         @param _harvestForToken, Token which should be purchased and re-invested during harvest
+        @param _numPoolTokens, Total number of tokens in target Curve pool
+        @param _idxOfHarvestForToken, Index to use when adding liquidity to Curve pool
         @param _rewardsTokens, Array of 0-n rewards tokens (non-CRV) associated with this pool
         @param _rewardsRouters, Array of best-price AMM routers for swapping each reward token against. Index should match rewardsTokens index.
         @param _usesEth, if this contract should interact with ETH. If not, make not payable.
@@ -72,7 +74,9 @@ contract Strategy is BaseStrategy {
         string _name,
         address _gauge, 
         address _curveSwap, 
-        address _harvestForToken, 
+        address _harvestForToken,
+        uint256 _numPoolTokens,
+        uint256 _idxOfHarvestForToken,
         address[] _rewardsTokens, 
         address[] _rewardsRouters,
         bool _usesEth)
@@ -85,6 +89,8 @@ contract Strategy is BaseStrategy {
         gauge = _gauge;
         curveSwap = ICurveFi(address(_curveSwap));
         harvestForToken = _harvestForToken;
+        numPoolTokens = _numPoolTokens;
+        idxOfHarvestForToken = _idxOfHarvestForToken;
         // Add all rewards tokens to an array of ERC20s - we assume they are ERC20 compatible
         for (uint i = 0; i < _poolTokens.length; i++) {
             poolTokens.push(IERC20(_poolTokens[i]));
@@ -149,8 +155,35 @@ contract Strategy is BaseStrategy {
 
             // Invest balances back into want
             uint256 balance = IERC20(harvestForToken).balanceOf(address(this));
-            if(balance > 0){
-                CurveStableSwap.add_liquidity{value: eth_balance}([eth_balance, 0], 0);
+            if(usesEth){
+                uint256 balance = address(this).balance;
+                if(balance > 0){
+                    uint[] memory poolTokens = new uint[](numPoolTokens);
+                    for (uint256 i = 0; i < numPoolTokens.length; i++) {
+                        if(i == idxOfHarvestForToken){
+                            poolTokens[i] = balance;
+                        }
+                        else{
+                            poolTokens[i] = 0;
+                        }
+                    }
+                    CurveStableSwap.add_liquidity{value: balance}(poolTokens, 0);
+                }
+            }
+            else{
+                uint256 balance = IERC20(harvestForToken).balanceOf(address(this));
+                if(balance > 0){
+                    uint[] memory poolTokens = new uint[](numPoolTokens);
+                    for (uint256 i = 0; i < numPoolTokens.length; i++) {
+                        if(i == idxOfHarvestForToken){
+                            poolTokens[i] = balance;
+                        }
+                        else{
+                            poolTokens[i] = 0;
+                        }
+                    }
+                    CurveStableSwap.add_liquidity(poolTokens, 0);
+                }
             }
             _profit = want.balanceOf(address(this));
         }
